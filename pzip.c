@@ -7,23 +7,13 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-
+#include <assert.h>
 /*
     the tricky thing about this assignment is that multiple files need to be compressed into a single file with runs between files being combined.
     Thus it is only safe to split a file between threads for work when there is a change of character for example "aaaab" can be split so that one thread will recieve all the 'a's
     and another thread will receive the b. Furthermore, the begginnings and ends of files must be checked for this kind of pattern as well it is not safe to simply send 
     different files to different threads without checking for this kind of repitition separation. 
 */
-
-// This data structure contains a list of files and the last position to process
-// in the last file.
-struct Part_t
-{
-    // a list containing the contents of all the files to be processed. 
-    char** files_list;
-    // The index in the last file to stop processing.
-    long long int end_position;
-};
 
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
@@ -38,6 +28,26 @@ typedef struct
     File_t* list;
     int length;
 } File_List_t;
+
+//REMEMBER TO CONST THE FILE_LIST DATA STRUCTURE
+
+// This data structure contains a list of files and the last position to process
+// in the last file.
+typedef struct 
+{
+    File_List_t* file_list;
+
+    // Index in file_list.list for first file in this partition
+    int start_file;
+    // First index in start_file to process
+    int start_index;
+
+    // Index in file_list.list for the last file in this partition
+    int end_file;
+    // last index in end_file in to process
+    int end_index;
+
+} Part_t;
 
 /*
     This function is called by threads and takes a list of files to be zipped. In addition it takes as a parameter the index into the last
@@ -64,7 +74,7 @@ a much simpler way to split is to instead split whereever i would like to based 
 was written and if it matches the current character it can add that count to its current count and then write the data to standard out. alternatively there could be a communication variable to 
 hold the last value in the current threads chunk in this way standard out does not need to be modified. 
 */
-char* get_split_index(File_List_t file_list, int desired_split_index)
+/* char* get_split_index(File_List_t file_list, int desired_split_index)
 {
     char* split_file = file_list.list[desired_split_index];
     long int size = file_list.list[desired_split_index].size;
@@ -80,14 +90,90 @@ char* get_split_index(File_List_t file_list, int desired_split_index)
     }
 
     // if there are more files we must continue searching for a good split.
-}
+} */
+
+
+
+
+
+
 /*
     This function should only be called by the main thread to determine the split points for all the other threads. 
 
     IMPORTANT NOTE even if only one character is repeating in multiple consecutive files that character must still be summed correctly without repeated counts.
 */
-struct Part_t* partition_work(char** files_to_partition)
+Part_t* partition_work(File_List_t file_list)
 {
+
+
+    // calculate how many bytes each thread should process.
+    const long int NUM_THREADS = 2;
+    long int total_size = 0;
+    for(int i = 0; i < file_list.length; i++)
+    {
+        total_size += file_list.list[i].size;
+    }
+    //printf("total size: %ld\n", total_size);
+    long int split_size = total_size / NUM_THREADS;
+    int remainder = total_size % NUM_THREADS;
+
+    assert(split_size * NUM_THREADS + remainder == total_size);
+    //printf("work per thread %ld\n", split_size);
+    //printf("Remainder: %d\n", remainder);
+
+    // Allocate space to store list of partitions
+    // check if this fails.
+    // this needs to be freed.
+    Part_t* partition_list = (Part_t*) calloc(NUM_THREADS, sizeof(Part_t));
+
+    long int assigned_size = 0;
+    int current_file = 0;
+    int current_index = 0;
+    for(int i = 0; i < NUM_THREADS; i++)
+    {
+        int start_file = current_file;
+        int start_index = current_index;
+
+        // if we are assigning work to the last thread.
+        if (i == NUM_THREADS-1)
+        {
+            end_file = current_file;
+            end_index = file_list.list[current_file].size;
+        }
+        else
+        {
+            for(int j = 0; j < file_list.length; j++)
+            {
+                current_file = i;
+                if(assigned_size + file_list.list[j].size < split_size)
+                {
+                    // Another file will be added to the partition.
+                    assigned_size += file_list.list[j].size;
+                }
+                else if()
+                {
+                    // This file is exactly the number of bytes we want.
+                    current_index = file_list.list[j].size;
+                    break;
+                }
+                else
+                {
+                    // We are in the last file of the current partition.
+                    bytes_needed = split_size - assigned_size;
+                    current_index = bytes_needed;
+                    break;
+                }
+            }
+            int end_file = current_file;
+            int end_index = current_index;
+            current_index = 0;
+            assigned_size = 0;
+        }
+    }
+
+
+
+
     return NULL;
 }
 
@@ -115,6 +201,8 @@ int main(int argc, char** argv)
 {
     const int NUM_THREADS = 1;
     //getenv to load the number of threads.
+
+    // need to have a variable for the last stored char and its count that is globally accessible.
 
     // Since the name of the program is an argument
     int length = argc - 1;
@@ -146,6 +234,7 @@ int main(int argc, char** argv)
         }
 
         print_file_list(file_list);
+        partition_work(file_list);
     }
     
     
