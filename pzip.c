@@ -8,6 +8,16 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <pthread.h>
+
+
+/*
+    Instead of writing the final character and its count in a given partition to standard out
+    the thread will store it here so that the next thread can use it to initialize its initial
+    character and count.
+*/
+int shared_final_count = 0;
+int shared_final_char = 0;
 
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
@@ -64,16 +74,23 @@ void print_partition(Part_t partition)
     printf("end index: %d\n", partition.end_index);
 }
 
+
+
+
+
 /*
     This function is called by threads and takes a list of files to be zipped. In addition it takes as a parameter the index into the last
     file that this thread is responsible for so it knows where to stop performing work partway through a file. This function writes to standard out and must check based on
     which thread number it is if it is time for it to be writing to standard out so that the output will come out in the correct order. 
 */
-void zip_files(Part_t partition)
+void* zip_files(void* void_partition)
 {
+    printf("here\n");
+    Part_t partition = *((Part_t*) void_partition);
     int streak_char;
     int cur_char;
     int count = 0;
+    int end_point;
     //printf("zipping-----------\n");
     //printf("%s", partition.file_list->list[0].contents);
     //print_file_list(partition.file_list);
@@ -82,10 +99,20 @@ void zip_files(Part_t partition)
 
     // NEED TO ADD USE START AND END INDICES IN PARTITION
     // need to fix character counts for repeats in sequential files. 
-    for (int i = 0; i < partition.file_list->length; i++) 
+    for (int i = partition.start_file; i <= partition.end_file; i++) 
     {
         char* file = partition.file_list->list[i].contents;
-        for(int j = 0; j < partition.file_list->list[i].size; j++)
+
+        if(i == partition.end_file)
+        {
+            end_point = partition.end_index;
+        }
+        else
+        {
+            end_point = partition.file_list->list[i].size;
+        }
+
+        for(int j = partition.start_index; j < end_point; j++)
         {
             // if we are in the first file.
             cur_char = file[j];
@@ -93,7 +120,7 @@ void zip_files(Part_t partition)
             {
                 count++;
             }
-            else
+            else if(cur_char != EOF)
             {
                 printf("%i", count);
                 /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
@@ -103,16 +130,17 @@ void zip_files(Part_t partition)
                 printf("%c", streak_char);
                 streak_char = cur_char;
                 count = 1;
+                printf("\n");
             }
         }
-        printf("%i", count);
-        /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
-            perror("Can't write to stdout");
-            exit(1);
-        } */
-        printf("%c", streak_char);
     }
-
+    printf("%i", count);
+    /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
+        perror("Can't write to stdout");
+        exit(1);
+    } */
+    printf("%c", streak_char);
+    return NULL;
 }
 
 /*
@@ -206,6 +234,7 @@ int main(int argc, char** argv)
     File_t* list = (File_t*) calloc(length, sizeof(File_t));
     File_List_t file_list = {list, length};
 
+
     if(argc == 1)
     {
         printf("Error no input files specified.\n");
@@ -232,12 +261,30 @@ int main(int argc, char** argv)
 
         print_file_list(file_list);
         Part_t* partition_list = partition_work(&file_list);
-        zip_files(partition_list[0]);
+        //zip_files(partition_list[0]);
 
+        void* part_arg = (void*) (&partition_list[0]);
+        // Allocate memory to hold a list of pthreads.
+        pthread_t* threads_list = (pthread_t*) calloc(NUM_THREADS, sizeof(pthread_t));
+
+        for(int i = 0; i < NUM_THREADS; i++)
+        {
+             // pthreads return a void pointer and take a void pointer as an argument
+            if( 0 != pthread_create(&threads_list[i], NULL, zip_files, part_arg))
+            {
+                printf("unable to create thread %d", i);
+            }
+            printf("%d created\n", i);
+        }
+        for(int i = 0; i < NUM_THREADS; i++)
+        {
+            pthread_join(threads_list[i], NULL);
+            printf("\n%d joined\n", i);
+        }
     }
 
     // Have the threads write their ouput in a synchronized way
-    //uses shared value for final output.
+    // uses shared value for final output.
 
     return 0;
 }
