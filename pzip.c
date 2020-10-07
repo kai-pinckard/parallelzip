@@ -8,12 +8,6 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <assert.h>
-/*
-    the tricky thing about this assignment is that multiple files need to be compressed into a single file with runs between files being combined.
-    Thus it is only safe to split a file between threads for work when there is a change of character for example "aaaab" can be split so that one thread will recieve all the 'a's
-    and another thread will receive the b. Furthermore, the begginnings and ends of files must be checked for this kind of pattern as well it is not safe to simply send 
-    different files to different threads without checking for this kind of repitition separation. 
-*/
 
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
@@ -49,6 +43,27 @@ typedef struct
 
 } Part_t;
 
+
+void print_file_list(File_List_t file_list)
+{
+    for(int i = 0; i < file_list.length; i++)
+    {
+        printf("filename: %s\n", file_list.list[i].name);
+        //printf("file contents:\n%s\n", file_list.list[i].contents);
+        printf("file_size: %ld\n", file_list.list[i].size);
+    }
+    printf("\nlist length: %d\n", file_list.length);
+}
+
+
+void print_partition(Part_t partition)
+{
+    printf("start file index: %d\n", partition.start_file);
+    printf("start index: %d\n", partition.start_index);
+    printf("end file index: %d\n", partition.end_file);
+    printf("end index: %d\n", partition.end_index);
+}
+
 /*
     This function is called by threads and takes a list of files to be zipped. In addition it takes as a parameter the index into the last
     file that this thread is responsible for so it knows where to stop performing work partway through a file. This function writes to standard out and must check based on
@@ -59,27 +74,26 @@ void zip_files(Part_t partition)
     int streak_char;
     int cur_char;
     int count = 0;
+    //printf("zipping-----------\n");
+    //printf("%s", partition.file_list->list[0].contents);
+    //print_file_list(partition.file_list);
+    streak_char = partition.file_list->list[0].contents[0];
+    //printf("%c", streak_char);
 
-    
-    for (int i = 0; i < partition.file_list.length; i++) {
-
-        // if we are in the first file.
-        char* file = partition.file_list.list[i];
-
-        cur_char = fgetc(file);
-        if (i == 0)
-        { 
-            streak_char = cur_char;
-        }
-
-        while (cur_char != EOF) 
-        { 
+    // NEED TO ADD USE START AND END INDICES IN PARTITION
+    // need to fix character counts for repeats in sequential files. 
+    for (int i = 0; i < partition.file_list->length; i++) 
+    {
+        char* file = partition.file_list->list[i].contents;
+        for(int j = 0; j < partition.file_list->list[i].size; j++)
+        {
+            // if we are in the first file.
+            cur_char = file[j];
             if (streak_char == cur_char)
             {
                 count++;
-                cur_char = fgetc(file);
             }
-            else if (cur_char != EOF)
+            else
             {
                 printf("%i", count);
                 /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
@@ -88,81 +102,32 @@ void zip_files(Part_t partition)
                 } */
                 printf("%c", streak_char);
                 streak_char = cur_char;
-                cur_char = fgetc(file);
-
                 count = 1;
             }
         }
-
-        fclose(file);
+        printf("%i", count);
+        /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
+            perror("Can't write to stdout");
+            exit(1);
+        } */
+        printf("%c", streak_char);
     }
 
-    printf("%i", count);
-    /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
-        perror("Can't write to stdout");
-        exit(1);
-    } */
-    printf("%c", streak_char);
 }
 
-/*
-This helper function for partition work returns the index of the second type of character occuring in
-a file for example in the file aaaabccc it would return the index of b.
-
-desired_split_index refers to the position of the file which we desire the split to occur in
-that is contained in the list of files contained in the file_list struct. 
-returns a pointer to the last character that is to be included in the current split.
-
-
-
-
-a much simpler way to split is to instead split whereever i would like to based on fairness and then when the threads are writing to stdout they can check the last character that
-was written and if it matches the current character it can add that count to its current count and then write the data to standard out. alternatively there could be a communication variable to 
-hold the last value in the current threads chunk in this way standard out does not need to be modified. 
-*/
-/* char* get_split_index(File_List_t file_list, int desired_split_index)
-{
-    char* split_file = file_list.list[desired_split_index];
-    long int size = file_list.list[desired_split_index].size;
-
-    int first_char = split_file[0];
-    
-    for(long int i = 1; i < size; i++)
-    {
-        if (split_file[i] != first_char)
-        {
-            return i;
-        }
-    }
-
-    // if there are more files we must continue searching for a good split.
-} */
-
-
-
-
-
-
-void print_partition(Part_t partition)
-{
-    printf("start file index: %d\n", partition.start_file);
-    printf("start index: %d\n", partition.start_index);
-    printf("end file index: %d\n", partition.end_file);
-    printf("end index: %d\n", partition.end_index);
-}
 /*
     This function should only be called by the main thread to determine the split points for all the other threads. 
 
     IMPORTANT NOTE even if only one character is repeating in multiple consecutive files that character must still be summed correctly without repeated counts.
 */
-Part_t* partition_work(File_List_t file_list)
+Part_t* partition_work(File_List_t* file_list)
 {
     // calculate how many bytes each thread should process.
     const long int NUM_THREADS = 1;
     long int total_size = 0;
-    for(int i = 0; i < file_list.length; i++)
+    for(int i = 0; i < file_list->length; i++)
     {
-        total_size += file_list.list[i].size;
+        total_size += file_list->list[i].size;
     }
     printf("total size: %ld\n", total_size);
     long int split_size = total_size / NUM_THREADS;
@@ -180,15 +145,15 @@ Part_t* partition_work(File_List_t file_list)
     long int assigned_size = 0;
     int current_file = 0;
     int current_index = 0;
-    int remaining_size = file_list.list[current_file].size;
+    int remaining_size = file_list->list[current_file].size;
 
     for(int i = 0; i < NUM_THREADS; i++)
     {
-        partition_list[i].file_list = &file_list;
+        partition_list[i].file_list = file_list;
         partition_list[i].start_file = current_file;
         partition_list[i].start_index = current_index;
 
-        for(; current_file < file_list.length; current_file++)
+        for(; current_file < file_list->length; current_file++)
         {
             if(assigned_size + remaining_size < split_size)
             {
@@ -198,7 +163,7 @@ Part_t* partition_work(File_List_t file_list)
             else if(assigned_size + remaining_size == split_size)
             {
                 // This file is exactly the number of bytes we want.
-                current_index = file_list.list[current_file].size;
+                current_index = file_list->list[current_file].size;
                 partition_list[i].end_file = current_file;
                 partition_list[i].end_index = current_index;
                 current_file++;
@@ -215,11 +180,10 @@ Part_t* partition_work(File_List_t file_list)
                 break;
             }
             // possibly check for out of bounds.
-            remaining_size = file_list.list[current_file+1].size;
+            remaining_size = file_list->list[current_file+1].size;
         }
         assigned_size = 0;
     }
-
 
     for(int i = 0; i < NUM_THREADS; i++)
     {
@@ -230,26 +194,6 @@ Part_t* partition_work(File_List_t file_list)
     return partition_list;
 }
 
-
-void print_file_list(File_List_t file_list)
-{
-    for(int i = 0; i < file_list.length; i++)
-    {
-        printf("filename: %s\n", file_list.list[i].name);
-        //printf("file contents:\n%s\n", file_list.list[i].contents);
-        printf("file_size: %ld\n", file_list.list[i].size);
-    }
-    printf("\nlist length: %d\n", file_list.length);
-}
-
-/* 
-File_List_t init_file_list(int length)
-{
-
-    return 
-}
- */
-
 int main(int argc, char** argv)
 {
     const int NUM_THREADS = 1;
@@ -259,7 +203,7 @@ int main(int argc, char** argv)
 
     // Since the name of the program is an argument
     int length = argc - 1;
-    File_t list[length];
+    File_t* list = (File_t*) calloc(length, sizeof(File_t));
     File_List_t file_list = {list, length};
 
     if(argc == 1)
@@ -281,24 +225,19 @@ int main(int argc, char** argv)
             //printf("%s file size %ld\n", argv[i], statbuffer.st_size);
 
             file_list.list[i-1].name = argv[i];
-            // check for mmap fail
+            // check for mmap fail                                            update to mapp shared
             file_list.list[i-1].contents = mmap(NULL, statbuffer.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
             file_list.list[i-1].size = statbuffer.st_size;
         }
 
         print_file_list(file_list);
-        Part_t partition_list = partition_work(file_list);
-        zip_files(partition_list);
+        Part_t* partition_list = partition_work(&file_list);
+        zip_files(partition_list[0]);
 
     }
-    
-    
-    // Map all of the files into shared memory
-    
-
-    // partion work among the threads
 
     // Have the threads write their ouput in a synchronized way
+    //uses shared value for final output.
 
     return 0;
 }
