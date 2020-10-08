@@ -20,12 +20,6 @@ int shared_final_count = 0;
 int shared_final_char = 0;
 int partitions_completed = 0;
 
-
-
-
-
-
-
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
 {
@@ -39,6 +33,20 @@ typedef struct
     File_t* list;
     int length;
 } File_List_t;
+
+
+typedef struct
+{
+    int count;
+    int character;
+} Data_Pair_t;
+
+
+typedef struct
+{
+    Data_Pair_t* output_list;
+    int length;
+} Output_List_t;
 
 //REMEMBER TO CONST THE FILE_LIST DATA STRUCTURE
 
@@ -60,7 +68,7 @@ typedef struct
     // The position of this partition in the ordering of partitions starting at 0
     int partition_number;
     // The thread can store its temporary output here
-    char* output_buffer;
+    Output_List_t output;
 
 } Part_t;
 
@@ -95,34 +103,45 @@ void print_partition(Part_t partition)
 */
 void* zip_files(void* void_partition)
 {
-    printf("here\n");
-    Part_t partition = *((Part_t*) void_partition);
+    //printf("here\n");
+    Part_t* partition = ((Part_t*) void_partition);
     int streak_char;
     int cur_char;
     int count = 0;
     int end_point;
+    int start_point;
+    int output_pos = 0;
+    Data_Pair_t* output_list = partition->output.output_list;
     //printf("zipping-----------\n");
     //printf("%s", partition.file_list->list[0].contents);
     //print_file_list(partition.file_list);
-    streak_char = partition.file_list->list[0].contents[0];
+    streak_char = partition->file_list->list[partition->start_file].contents[partition->start_index];
     //printf("%c", streak_char);
 
     // NEED TO ADD USE START AND END INDICES IN PARTITION
     // need to fix character counts for repeats in sequential files. 
-    for (int i = partition.start_file; i <= partition.end_file; i++) 
+    for (int i = partition->start_file; i <= partition->end_file; i++) 
     {
-        char* file = partition.file_list->list[i].contents;
+        char* file = partition->file_list->list[i].contents;
 
-        if(i == partition.end_file)
+        if(i == partition->end_file)
         {
-            end_point = partition.end_index;
+            end_point = partition->end_index;
         }
         else
         {
-            end_point = partition.file_list->list[i].size;
+            end_point = partition->file_list->list[i].size;
+        }
+        if(i == partition->start_file)
+        {
+            start_point = partition->start_index;
+        }
+        else
+        {
+            start_point = 0;
         }
 
-        for(int j = partition.start_index; j < end_point; j++)
+        for(int j = start_point; j < end_point; j++)
         {
             // if we are in the first file.
             cur_char = file[j];
@@ -132,59 +151,57 @@ void* zip_files(void* void_partition)
             }
             else if(cur_char != EOF)
             {
-                printf("%i", count);
+                //printf("tests %i", count);
                 /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
                     perror("Can't write to stdout");
                     exit(1);
                 } */
-                printf("%c", streak_char);
+                //printf("tests %c\n", streak_char);
+                output_list[output_pos].count = count;
+                output_list[output_pos].character = streak_char;
+                output_pos++;
+                
                 streak_char = cur_char;
                 count = 1;
-                printf("\n");
+                //printf("\n");
             }
         }
     }
-    printf("%i", count);
+    //printf("testsss %i", count);
     /* if (fwrite(&count, sizeof(count), 1, stdout) < 1) {
         perror("Can't write to stdout");
         exit(1);
     } */
-    printf("%c", streak_char);
-
-
-    while(partition_number != partition.partition_number)
-    {
-        //sleep
-        pthread_sleep
-    }
-
-
-
+    //printf("testsss %c\n", streak_char);
+    //printf("done\n");
+    output_list[output_pos].count = count;
+    output_list[output_pos].character = streak_char;
+    output_pos++;
+    //printf("\noutput_pos %d\n", output_pos);
+    partition->output.length = output_pos;
 
     return NULL;
 }
 
 /*
     This function should only be called by the main thread to determine the split points for all the other threads. 
-
-    IMPORTANT NOTE even if only one character is repeating in multiple consecutive files that character must still be summed correctly without repeated counts.
 */
 Part_t* partition_work(File_List_t* file_list)
 {
     // calculate how many bytes each thread should process.
-    const long int NUM_THREADS = 1;
+    const int NUM_THREADS = 2;
     long int total_size = 0;
     for(int i = 0; i < file_list->length; i++)
     {
         total_size += file_list->list[i].size;
     }
-    printf("total size: %ld\n", total_size);
-    long int split_size = total_size / NUM_THREADS;
+    //printf("total size: %ld\n", total_size);
+    const long int split_size = total_size / NUM_THREADS;
     int remainder = total_size % NUM_THREADS;
 
     assert(split_size * NUM_THREADS + remainder == total_size);
-    printf("work per thread %ld\n", split_size);
-    printf("Remainder: %d\n", remainder);
+    //printf("work per thread %ld\n", split_size);
+    //printf("Remainder: %d\n", remainder);
 
     // Allocate space to store list of partitions
     // check if this fails.
@@ -203,44 +220,54 @@ Part_t* partition_work(File_List_t* file_list)
         partition_list[i].start_index = current_index;
         partition_list[i].partition_number = i;
         // need to free
-        partition_list[i].output_buffer = (char*) calloc(5*split_size, sizeof(char));
+        partition_list[i].output.output_list = (Data_Pair_t*) calloc(split_size, sizeof(Data_Pair_t));
 
-        for(; current_file < file_list->length; current_file++)
+        if (i == NUM_THREADS -1)
         {
-            if(assigned_size + remaining_size < split_size)
-            {
-                // Another file will be added to the partition.
-                assigned_size += remaining_size;
-            }
-            else if(assigned_size + remaining_size == split_size)
-            {
-                // This file is exactly the number of bytes we want.
-                current_index = file_list->list[current_file].size;
-                partition_list[i].end_file = current_file;
-                partition_list[i].end_index = current_index;
-                current_file++;
-                break;
-            }
-            else
-            {
-                // We are in the last file of the current partition.
-                int bytes_needed = split_size - assigned_size;
-                current_index = bytes_needed;
-                remaining_size -= bytes_needed;
-                partition_list[i].end_file = current_file;
-                partition_list[i].end_index = current_index;
-                break;
-            }
-            // possibly check for out of bounds.
-            remaining_size = file_list->list[current_file+1].size;
+            partition_list[i].end_file = file_list->length - 1;
+            partition_list[i].end_index = file_list->list[file_list->length - 1].size;
         }
-        assigned_size = 0;
+        else
+        {
+            //printf("partition: %d\n", i);
+            for(; current_file < file_list->length; current_file++)
+            {
+                if(assigned_size + remaining_size < split_size)
+                {
+                    // Another file will be added to the partition.
+                    assigned_size += remaining_size;
+                }
+                else if(assigned_size + remaining_size == split_size)
+                {
+                    // This file is exactly the number of bytes we want.
+                    current_index = file_list->list[current_file].size;
+                    partition_list[i].end_file = current_file;
+                    partition_list[i].end_index = current_index;
+                    current_file++;
+                    break;
+                }
+                else
+                {   
+                    //printf("ran\n");
+                    // We are in the last file of the current partition.
+                    int bytes_needed = split_size - assigned_size;
+                    current_index = bytes_needed;
+                    remaining_size -= bytes_needed;
+                    partition_list[i].end_file = current_file;
+                    partition_list[i].end_index = current_index;
+                    break;
+                }
+                // possibly check for out of bounds.
+                remaining_size = file_list->list[current_file+1].size;
+            }
+            assigned_size = 0;
+        }
     }
 
     for(int i = 0; i < NUM_THREADS; i++)
     {
-        printf("\npartition %d\n", i);
-        print_partition(partition_list[i]);
+        //printf("\npartition %d\n", i);
+        //print_partition(partition_list[i]);
     }
 
     return partition_list;
@@ -248,7 +275,7 @@ Part_t* partition_work(File_List_t* file_list)
 
 int main(int argc, char** argv)
 {
-    const int NUM_THREADS = 1;
+    const int NUM_THREADS = 2;
     //getenv to load the number of threads.
 
     // need to have a variable for the last stored char and its count that is globally accessible.
@@ -261,7 +288,8 @@ int main(int argc, char** argv)
 
     if(argc == 1)
     {
-        printf("Error no input files specified.\n");
+        printf("wzip: file1 [file2 ...]\n");
+        exit(1);
     }
     else
     {
@@ -283,27 +311,79 @@ int main(int argc, char** argv)
             file_list.list[i-1].size = statbuffer.st_size;
         }
 
-        print_file_list(file_list);
+        //print_file_list(file_list);
         Part_t* partition_list = partition_work(&file_list);
         //zip_files(partition_list[0]);
-
-        void* part_arg = (void*) (&partition_list[0]);
         // Allocate memory to hold a list of pthreads.
         pthread_t* threads_list = (pthread_t*) calloc(NUM_THREADS, sizeof(pthread_t));
+
 
         for(int i = 0; i < NUM_THREADS; i++)
         {
              // pthreads return a void pointer and take a void pointer as an argument
-            if( 0 != pthread_create(&threads_list[i], NULL, zip_files, part_arg))
+            if( 0 != pthread_create(&threads_list[i], NULL, zip_files, (void*) (&partition_list[i])))
             {
                 printf("unable to create thread %d", i);
             }
-            printf("%d created\n", i);
+            //printf("%d created\n", i);
         }
         for(int i = 0; i < NUM_THREADS; i++)
         {
             pthread_join(threads_list[i], NULL);
-            printf("\n%d joined\n", i);
+            //printf("\n%d joined\n", i);
+
+            Output_List_t output = partition_list[i].output;
+            int length = output.length;
+            //printf("\ndsf %d\n", partition_list[0].output.length);
+            
+            if(i > 0)
+            {
+                Data_Pair_t previous = partition_list[i-1].output.output_list[partition_list[i-1].output.length - 1];
+                // if the first character in the current partition is the same as the final character in the last partition
+                if(output.output_list[0].character == previous.character)
+                {
+                    //printf("ran old: %d, new: %d", output.output_list[0].count, output.output_list[0].count + previous.count);
+                    output.output_list[0].count += previous.count;
+                }
+                else
+                {
+                    //printf("%d", previous.count);
+                    if (fwrite(&previous.count, sizeof(previous.count), 1, stdout) < 1) 
+                    {
+                        perror("Can't write to stdout");
+                        exit(1);
+                    }
+                    printf("%c", previous.character);
+                }
+            }
+            for(int j = 0; j < length - 1; j++)
+            {
+                //printf("%d", partition_list[i].output.output_list[j].count);
+                if (fwrite(&partition_list[i].output.output_list[j].count, sizeof(partition_list[i].output.output_list[j].count), 1, stdout) < 1) 
+                {
+                    perror("Can't write to stdout");
+                    exit(1);
+                }
+                printf("%c", partition_list[i].output.output_list[j].character);
+            }
+
+            // if we are in the last partition print final characters
+            if( i == NUM_THREADS - 1)
+            {
+                //printf("%d", partition_list[i].output.output_list[length - 1].count);
+                if (fwrite(&partition_list[i].output.output_list[length - 1].count, sizeof(partition_list[i].output.output_list[length - 1].count), 1, stdout) < 1) 
+                {
+                    perror("Can't write to stdout");
+                    exit(1);
+                }
+                printf("%c", partition_list[i].output.output_list[length - 1].character);
+            }
+
+            /* if (fwrite(&(partition_list[i].output.output_list), sizeof(Data_Pair_t), partition_list[i].output.length, stdout) < 1) {
+                perror("Can't write to stdou t");
+                exit(1);
+            } */
+
         }
     }
 
