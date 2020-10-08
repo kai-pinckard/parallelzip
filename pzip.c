@@ -18,6 +18,13 @@
 */
 int shared_final_count = 0;
 int shared_final_char = 0;
+int partitions_completed = 0;
+
+
+
+
+
+
 
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
@@ -50,6 +57,10 @@ typedef struct
     int end_file;
     // last index in end_file in to process
     int end_index;
+    // The position of this partition in the ordering of partitions starting at 0
+    int partition_number;
+    // The thread can store its temporary output here
+    char* output_buffer;
 
 } Part_t;
 
@@ -72,9 +83,8 @@ void print_partition(Part_t partition)
     printf("start index: %d\n", partition.start_index);
     printf("end file index: %d\n", partition.end_file);
     printf("end index: %d\n", partition.end_index);
+    printf("partition number: %d\n", partition.partition_number);
 }
-
-
 
 
 
@@ -140,6 +150,17 @@ void* zip_files(void* void_partition)
         exit(1);
     } */
     printf("%c", streak_char);
+
+
+    while(partition_number != partition.partition_number)
+    {
+        //sleep
+        pthread_sleep
+    }
+
+
+
+
     return NULL;
 }
 
@@ -180,6 +201,9 @@ Part_t* partition_work(File_List_t* file_list)
         partition_list[i].file_list = file_list;
         partition_list[i].start_file = current_file;
         partition_list[i].start_index = current_index;
+        partition_list[i].partition_number = i;
+        // need to free
+        partition_list[i].output_buffer = (char*) calloc(5*split_size, sizeof(char));
 
         for(; current_file < file_list->length; current_file++)
         {
