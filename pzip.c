@@ -318,6 +318,7 @@ int main(int argc, char** argv)
         Part_t* partition_list = partition_work(&file_list, NTHREADS, total_bytes);
         pthread_t* threads_list = (pthread_t*) calloc(NTHREADS, sizeof(pthread_t));
 
+
         //return 0;
         for(int i = 0; i < NTHREADS; i++)
         {
