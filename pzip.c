@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <math.h>
 
+
 // This data structure holds the memory mapped contents of a file and its size.
 typedef struct 
 {
@@ -95,12 +96,9 @@ void* zip_files(void* void_partition)
     int streak_char;
     int cur_char;
     int count = 0;
-
     int output_pos = 0;
-
     int end_point = 0;
     int start_point = 0;
-
 
     streak_char = partition->file_list->list[partition->start_file].contents[partition->start_index];
 
@@ -312,6 +310,7 @@ int main(int argc, char** argv)
         // If there is very little data to compress it does not make sense to use multiple threads
         if(total_bytes < 1000)
         {
+            perror("restricting");
             NTHREADS = 1;
         }
         //printf("total size: %ld\n", total_bytes);
@@ -327,10 +326,13 @@ int main(int argc, char** argv)
             {
                 printf("unable to create thread %d", i);
             }
+            perror("created");
         }
         for(int i = 0; i < NTHREADS; i++)
         {
+            perror("waiting");
             pthread_join(threads_list[i], NULL);
+            perror("joined");
             Output_List_t output = partition_list[i].output;
             int length = output.length;
             
@@ -346,7 +348,8 @@ int main(int argc, char** argv)
                 else
                 {
                     //printf("%d", previous.count);
-                    if (fwrite(&previous.count, sizeof(previous.count), 1, stdout) < 1) 
+                    
+                    if (__builtin_expect((fwrite(&previous.count, sizeof(previous.count), 1, stdout) < 1),0))
                     {
                         perror("Can't write to stdout");
                         exit(1);
@@ -380,11 +383,18 @@ int main(int argc, char** argv)
                 printf("%c", partition_list[i].output.output_list[length - 1].character);
             }
 
-            /* if (fwrite(&(partition_list[i].output.output_list), sizeof(Data_Pair_t), partition_list[i].output.length, stdout) < 1) {
-                perror("Can't write to stdou t");
-                exit(1);
-            } */
+            perror("finished_writing");
         }
+        free(threads_list);
+        
+        for(int i = 0; i < NTHREADS; i++)
+        {
+            free(partition_list[i].output.output_list); 
+        }
+        free(partition_list);
     }
+    free(file_list.list);
+
+
     return 0;
 }
