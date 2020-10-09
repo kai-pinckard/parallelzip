@@ -170,7 +170,7 @@ long int calculate_partition_size(long int total_size, int NTHREADS, int partiti
 {
     long int base_size = (0.4 * total_size) / NTHREADS;
     long int variable_portion = 0.6 * total_size;
-
+    // Since I am using only finitely many terms of an infinite series that sums to 1
     long int error = variable_portion / (pow(2, NTHREADS));
 
     variable_portion += error;
@@ -214,7 +214,7 @@ Part_t* partition_work(File_List_t* file_list, int NTHREADS, long int total_byte
         {
             // need to fix this by keeping track of how many bytes we have processed. 
             split_size = total_bytes - total_assigned;
-            printf("split size: %ld\n", split_size);
+            //printf("split size: %ld\n", split_size);
             //need to alloc more for error in last file
             partition_list[i].output.output_list = (Data_Pair_t*) calloc(split_size, sizeof(Data_Pair_t));
 
@@ -224,10 +224,10 @@ Part_t* partition_work(File_List_t* file_list, int NTHREADS, long int total_byte
         else
         {
             split_size = calculate_partition_size(total_bytes, NTHREADS, i);
-            printf("split size: %ld\n", split_size);
+            //printf("split size: %ld\n", split_size);
             partition_list[i].output.output_list = (Data_Pair_t*) calloc(split_size, sizeof(Data_Pair_t));
 
-            printf("partition: %d\n", i);
+            //printf("partition: %d\n", i);
             for(; current_file < file_list->length; current_file++)
             {
                 if(assigned_size + remaining_size < split_size)
@@ -255,18 +255,25 @@ Part_t* partition_work(File_List_t* file_list, int NTHREADS, long int total_byte
         }
     }
 
-    for(int i = 0; i < NTHREADS; i++)
+  /*   for(int i = 0; i < NTHREADS; i++)
     {
         printf("\npartition %d\n", i);
         print_partition(partition_list[i]);
-    }
+    } */
 
     return partition_list;
 }
 
 int main(int argc, char** argv)
 {
-    int NTHREADS = atoi(getenv("NTHREADS"));
+
+    int NTHREADS = 1;
+    char* nthreads;
+    if((nthreads = getenv("NTHREADS")) != NULL)
+    {
+        NTHREADS = atoi(nthreads);
+    }
+    
     long int total_bytes = 0;
 
     // Since the name of the program is an argument
@@ -292,7 +299,7 @@ int main(int argc, char** argv)
                 printf("Error unable to get stat info for file %s\n", argv[i]);
                 return 1;
             }
-            printf("%s file size %ld\n", argv[i], statbuffer.st_size);
+            //printf("%s file size %ld\n", argv[i], statbuffer.st_size);
 
             file_list.list[i-1].name = argv[i];
             // check for mmap fail                                            update to mapp shared
@@ -303,16 +310,16 @@ int main(int argc, char** argv)
         //print_file_list(file_list);
 
         // If there is very little data to compress it does not make sense to use multiple threads
-        if(total_bytes < 10)
+        if(total_bytes < 1000)
         {
             NTHREADS = 1;
         }
-        printf("total size: %ld\n", total_bytes);
+        //printf("total size: %ld\n", total_bytes);
 
         Part_t* partition_list = partition_work(&file_list, NTHREADS, total_bytes);
         pthread_t* threads_list = (pthread_t*) calloc(NTHREADS, sizeof(pthread_t));
 
-        return 0;
+        //return 0;
         for(int i = 0; i < NTHREADS; i++)
         {
              // pthreads return a void pointer and take a void pointer as an argument
@@ -320,16 +327,12 @@ int main(int argc, char** argv)
             {
                 printf("unable to create thread %d", i);
             }
-            printf("%d created\n", i);
         }
         for(int i = 0; i < NTHREADS; i++)
         {
             pthread_join(threads_list[i], NULL);
-            printf("\n%d joined\n", i);
-
             Output_List_t output = partition_list[i].output;
             int length = output.length;
-            printf("\ndsf %d\n", partition_list[0].output.length);
             
             if(i > 0)
             {
@@ -337,7 +340,7 @@ int main(int argc, char** argv)
                 // if the first character in the current partition is the same as the final character in the last partition
                 if(output.output_list[0].character == previous.character)
                 {
-                    printf("ran old: %d, new: %d", output.output_list[0].count, output.output_list[0].count + previous.count);
+                    //printf("ran old: %d, new: %d", output.output_list[0].count, output.output_list[0].count + previous.count);
                     output.output_list[0].count += previous.count;
                 }
                 else
@@ -352,13 +355,16 @@ int main(int argc, char** argv)
                 }
             }
             for(int j = 0; j < length - 1; j++)
-            {
-                //printf("%d", partition_list[i].output.output_list[j].count);
-                if (fwrite(&partition_list[i].output.output_list[j].count, sizeof(partition_list[i].output.output_list[j].count), 1, stdout) < 1) 
+            {  
+                //printf("here\n");
+                //printf("%d", output.output_list[j].count);
+                
+                if (fwrite(&((output.output_list[j]).count), sizeof((output.output_list[j]).count), 1, stdout) < 1) 
                 {
                     perror("Can't write to stdout");
                     exit(1);
                 }
+                //printf("dsf");
                 printf("%c", partition_list[i].output.output_list[j].character);
             }
 
