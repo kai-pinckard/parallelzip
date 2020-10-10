@@ -2,7 +2,7 @@
     Project 2: parallel zip (pzip)
     Completed by: Kai Pinckard
 
-    Note: need to link with math "-lm"
+    Note: please link with math "-lm" for math
 
 */
 
@@ -58,9 +58,9 @@ typedef struct
 } Part_t;
 
 /*
-    This function is called by threads and takes a list of files to be zipped. In addition it takes as a parameter the index into the last
-    file that this thread is responsible for so it knows where to stop performing work partway through a file. This function writes to standard out and must check based on
-    which thread number it is if it is time for it to be writing to standard out so that the output will come out in the correct order. 
+    This function is called by the compression threads and takes a partition as a parameter. 
+    The function will compress the bytes specified by the partition and store them in the
+    respective thread's partition's output buffer.
 */
 void* zip_files(void* void_partition)
 {
@@ -143,7 +143,8 @@ long int calculate_partition_size(long int total_size, int NTHREADS, int partiti
 }
 
 /*
-    This function breaks work into NTHREADS partitions so that each thread can be assigned
+    This function divides the bytes that need compressing 
+    into NTHREADS partitions so that each thread can be assigned
     a partition of the overall work to complete. 
 */
 Part_t* partition_work(File_List_t* file_list, int NTHREADS, long int total_bytes)
